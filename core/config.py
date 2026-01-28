@@ -50,8 +50,8 @@ class BasicConfig(BaseModel):
     duckmail_base_url: str = Field(default="https://api.duckmail.sbs", description="DuckMail API地址")
     duckmail_api_key: str = Field(default="", description="DuckMail API key")
     duckmail_verify_ssl: bool = Field(default=True, description="DuckMail SSL校验")
-    temp_mail_provider: str = Field(default="duckmail", description="临时邮箱提供商: duckmail/moemail/freemail/gptmail")
-    moemail_base_url: str = Field(default="https://moemail.app", description="Moemail API地址")
+    temp_mail_provider: str = Field(default="moemail", description="临时邮箱提供商: moemail/duckmail/freemail/gptmail")
+    moemail_base_url: str = Field(default="https://moemail.nanohajimi.mom", description="Moemail API地址")
     moemail_api_key: str = Field(default="", description="Moemail API key")
     moemail_domain: str = Field(default="", description="Moemail 邮箱域名（可选，留空则随机选择）")
     freemail_base_url: str = Field(default="http://your-freemail-server.com", description="Freemail API地址")
@@ -101,6 +101,9 @@ class RetryConfig(BaseModel):
     rate_limit_cooldown_seconds: int = Field(default=3600, ge=3600, le=43200, description="429冷却时间（秒）")
     session_cache_ttl_seconds: int = Field(default=3600, ge=0, le=86400, description="会话缓存时间（秒，0表示禁用缓存）")
     auto_refresh_accounts_seconds: int = Field(default=60, ge=0, le=600, description="自动刷新账号间隔（秒，0禁用）")
+    # 定时刷新配置
+    scheduled_refresh_enabled: bool = Field(default=False, description="是否启用定时刷新任务")
+    scheduled_refresh_interval_minutes: int = Field(default=30, ge=0, le=720, description="定时刷新检测间隔（分钟，0-12小时）")
 
 
 class PublicDisplayConfig(BaseModel):
