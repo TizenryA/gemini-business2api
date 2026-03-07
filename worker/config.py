@@ -42,6 +42,14 @@ def _normalize_browser_mode(value, default: str = "normal") -> str:
     return default
 
 
+def _normalize_temp_mail_provider(value, default: str = "duckmail") -> str:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("moemail", "duckmail", "freemail", "gptmail"):
+            return lowered
+    return default
+
+
 # ==================== Config models ====================
 
 class BasicConfig(BaseModel):
@@ -50,7 +58,7 @@ class BasicConfig(BaseModel):
     duckmail_base_url: str = Field(default="https://api.duckmail.sbs", description="DuckMail API地址")
     duckmail_api_key: str = Field(default="", description="DuckMail API key")
     duckmail_verify_ssl: bool = Field(default=True, description="DuckMail SSL校验")
-    temp_mail_provider: str = Field(default="moemail", description="临时邮箱提供商")
+    temp_mail_provider: str = Field(default="duckmail", description="临时邮箱提供商")
     moemail_base_url: str = Field(default="https://moemail.nanohajimi.mom", description="Moemail API地址")
     moemail_api_key: str = Field(default="", description="Moemail API key")
     moemail_domain: str = Field(default="", description="Moemail 邮箱域名")
@@ -67,7 +75,7 @@ class BasicConfig(BaseModel):
     browser_headless: bool = Field(default=False, description="兼容字段：是否无头模式")
     refresh_window_hours: int = Field(default=1, ge=0, le=24, description="过期刷新窗口（小时）")
     register_domain: str = Field(default="", description="注册账号使用的邮箱域名（DuckMail专用）")
-    register_default_count: int = Field(default=1, ge=1, le=20, description="默认注册账号数量")
+    register_default_count: int = Field(default=20, ge=1, description="默认注册账号数量")
 
 
 class RetryConfig(BaseModel):
@@ -123,7 +131,7 @@ class ConfigManager:
             duckmail_base_url=basic_data.get("duckmail_base_url") or "https://api.duckmail.sbs",
             duckmail_api_key=str(basic_data.get("duckmail_api_key") or "").strip(),
             duckmail_verify_ssl=_parse_bool(basic_data.get("duckmail_verify_ssl"), True),
-            temp_mail_provider=basic_data.get("temp_mail_provider") or "moemail",
+            temp_mail_provider=basic_data.get("temp_mail_provider") or "duckmail",
             moemail_base_url=basic_data.get("moemail_base_url") or "https://moemail.nanohajimi.mom",
             moemail_api_key=str(basic_data.get("moemail_api_key") or "").strip(),
             moemail_domain=str(basic_data.get("moemail_domain") or "").strip(),
@@ -140,7 +148,7 @@ class ConfigManager:
             browser_headless=browser_headless,
             refresh_window_hours=int(basic_data.get("refresh_window_hours", 1)),
             register_domain=str(basic_data.get("register_domain") or "").strip(),
-            register_default_count=max(1, int(basic_data.get("register_default_count", 1))),
+            register_default_count=max(1, int(basic_data.get("register_default_count", 20))),
         )
 
         # Remote mode safe default:
@@ -221,6 +229,21 @@ class ConfigManager:
             self._config.basic.proxy_for_auth = env_proxy.strip()
             logger.info("[CONFIG] env override: PROXY_FOR_AUTH=%s", "***" if env_proxy.strip() else "(empty)")
 
+        env_temp_mail_provider = os.getenv("TEMP_MAIL_PROVIDER")
+        if env_temp_mail_provider is not None:
+            provider = _normalize_temp_mail_provider(
+                env_temp_mail_provider,
+                self._config.basic.temp_mail_provider,
+            )
+            if provider != env_temp_mail_provider.strip().lower():
+                logger.warning(
+                    "[CONFIG] invalid TEMP_MAIL_PROVIDER=%r, fallback to %s",
+                    env_temp_mail_provider,
+                    provider,
+                )
+            self._config.basic.temp_mail_provider = provider
+            logger.info("[CONFIG] env override: TEMP_MAIL_PROVIDER=%s", provider)
+
         env_delete_expired = os.getenv("DELETE_EXPIRED_ACCOUNTS")
         if env_delete_expired is not None:
             val = _parse_bool(env_delete_expired, self._config.retry.delete_expired_accounts)
@@ -250,7 +273,7 @@ class ConfigManager:
         env_register_count = os.getenv("REGISTER_DEFAULT_COUNT")
         if env_register_count is not None:
             try:
-                val = max(1, min(20, int(env_register_count)))
+                val = max(1, int(env_register_count))
                 self._config.basic.register_default_count = val
                 logger.info("[CONFIG] env override: REGISTER_DEFAULT_COUNT=%d", val)
             except ValueError:

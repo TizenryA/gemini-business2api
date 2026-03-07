@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -22,6 +23,7 @@ LANG_EN = "en"
 CLI_LANG_ENV_KEY = "CLI_LANG"
 DEFAULT_BROWSER_MODE = "normal"
 VALID_BROWSER_MODES = {"normal", "silent", "headless"}
+VALID_MAIL_PROVIDERS = ("moemail", "duckmail", "freemail", "gptmail")
 DEFAULT_LANG = LANG_ZH
 CURRENT_LANG = DEFAULT_LANG
 
@@ -51,6 +53,13 @@ def _is_yes(value: str) -> bool:
 def _normalize_browser_mode(value: str, default: str = DEFAULT_BROWSER_MODE) -> str:
     raw = (value or "").strip().lower()
     if raw in VALID_BROWSER_MODES:
+        return raw
+    return default
+
+
+def _normalize_mail_provider(value: str, default: str = "duckmail") -> str:
+    raw = (value or "").strip().lower()
+    if raw in VALID_MAIL_PROVIDERS:
         return raw
     return default
 
@@ -258,6 +267,24 @@ def show_current_config() -> None:
             "runtime auth proxy",
         )
         _print_config_item(
+            "temp_mail_provider",
+            config.basic.temp_mail_provider,
+            "默认临时邮箱提供商",
+            "default temp mail provider",
+        )
+        _print_config_item(
+            "register_domain",
+            config.basic.register_domain or "(empty)",
+            "默认注册域名（DuckMail 专用）",
+            "default register domain (DuckMail only)",
+        )
+        _print_config_item(
+            "register_default_count",
+            config.basic.register_default_count,
+            "默认注册数量",
+            "default register count",
+        )
+        _print_config_item(
             "auto_register_enabled",
             config.retry.auto_register_enabled,
             "自动注册开关",
@@ -421,6 +448,141 @@ def run_once_command() -> None:
         print(f"- {key}: {summary.get(key)}")
 
 
+def _ask_mail_provider(default_provider: str) -> str:
+    _print_header(_t("选择邮箱提供商", "Choose Mail Provider"))
+    print(f"1. duckmail {_t('(推荐)', '(recommended)')}")
+    print("2. moemail")
+    print("3. freemail")
+    print("4. gptmail")
+    print(f"0. {_t('使用默认', 'Use default')}: {default_provider}")
+    choice = input(f"\n{_t('请选择', 'Choose')}: ").strip()
+    mapping = {
+        "1": "duckmail",
+        "2": "moemail",
+        "3": "freemail",
+        "4": "gptmail",
+    }
+    if choice == "0" or choice == "":
+        return default_provider
+    return mapping.get(choice, default_provider)
+
+
+def _ask_int(prompt: str, default_value: int, min_value: int) -> int:
+    raw = input(f"{prompt} [{default_value}]: ").strip()
+    if not raw:
+        return default_value
+    try:
+        value = int(raw)
+    except ValueError:
+        return default_value
+    return max(min_value, value)
+
+
+def run_register_command(
+    count: int | None = None,
+    mail_provider: str = "",
+    domain: str = "",
+    interactive: bool = False,
+) -> None:
+    from worker.config import config, config_manager
+    from worker.register_service import register_one
+
+    _print_header(_t("手动注册账号", "Manual Account Registration"))
+
+    try:
+        config_manager.reload()
+    except Exception as exc:
+        print(f"{_t('配置重载失败', 'Config reload failed')}: {exc}")
+        return
+
+    default_provider = _normalize_mail_provider(config.basic.temp_mail_provider, "duckmail")
+    default_count = max(1, int(config.basic.register_default_count or 20))
+    default_domain = (config.basic.register_domain or "").strip()
+
+    provider = _normalize_mail_provider(mail_provider, default_provider)
+    register_count = max(1, int(count or default_count))
+    domain_value = (domain or "").strip()
+
+    if interactive:
+        provider = _ask_mail_provider(default_provider)
+        register_count = _ask_int(
+            _t("注册数量（>=1）", "Register count (>=1)"),
+            default_count,
+            1,
+        )
+        if provider == "duckmail":
+            entered_domain = input(
+                f"{_t('DuckMail 注册域名（回车使用默认）', 'DuckMail register domain (Enter to keep default)')} "
+                f"[{default_domain or '(empty)'}]: "
+            ).strip()
+            domain_value = entered_domain if entered_domain else default_domain
+        else:
+            domain_value = ""
+
+        print("-" * 60)
+        print(f"{_t('提供商', 'Provider')}: {provider}")
+        print(f"{_t('注册数量', 'Count')}: {register_count}")
+        if provider == "duckmail":
+            print(f"{_t('注册域名', 'Domain')}: {domain_value or '(empty)'}")
+        confirm = input(_t("确认开始注册？(Y/n): ", "Start registration now? (Y/n): ")).strip().lower()
+        if confirm in {"n", "no"}:
+            print(_t("已取消。", "Cancelled."))
+            return
+
+    success_count = 0
+    fail_count = 0
+    start = time.time()
+
+    for i in range(register_count):
+        print(
+            f"\n[{i + 1}/{register_count}] "
+            f"{_t('开始注册', 'Start registering')} "
+            f"(provider={provider}{', domain=' + domain_value if provider == 'duckmail' and domain_value else ''})"
+        )
+        try:
+            result = register_one(
+                domain=(domain_value if provider == "duckmail" and domain_value else None),
+                mail_provider=provider,
+            )
+        except Exception as exc:
+            result = {"success": False, "error": str(exc)}
+
+        if result.get("success"):
+            success_count += 1
+            print(f"✅ {_t('注册成功', 'Registered')}: {result.get('email', 'unknown')}")
+        else:
+            fail_count += 1
+            print(f"❌ {_t('注册失败', 'Failed')}: {result.get('error', 'unknown error')}")
+
+        if i < register_count - 1:
+            print(_t("等待 10 秒后继续下一次注册...", "Waiting 10s before next registration..."))
+            time.sleep(10)
+
+    elapsed = time.time() - start
+    print("\n" + "=" * 60)
+    print(_t("手动注册完成", "Manual registration completed"))
+    print(f"{_t('成功', 'Success')}: {success_count}")
+    print(f"{_t('失败', 'Failed')}: {fail_count}")
+    print(f"{_t('耗时', 'Elapsed')}: {elapsed:.1f}s")
+    print("=" * 60)
+
+    if interactive:
+        persist_choice = input(
+            _t(
+                "是否将本次提供商/域名写入本地 .env 作为默认？(y/N): ",
+                "Persist provider/domain to local .env as defaults? (y/N): ",
+            )
+        ).strip()
+        if _is_yes(persist_choice):
+            updates = {"TEMP_MAIL_PROVIDER": provider}
+            if provider == "duckmail":
+                updates["REGISTER_DOMAIN"] = domain_value
+            updates["REGISTER_DEFAULT_COUNT"] = str(register_count)
+            path = _save_env_updates(updates)
+            load_dotenv(path, override=True)
+            print(f"{_t('已写入', 'Saved')}: {path.resolve()}")
+
+
 def run_polling_command() -> None:
     from worker.refresh_service import RefreshService
 
@@ -561,9 +723,10 @@ def interactive_menu() -> None:
         print(f"2. {_t('测试远程连接', 'Test remote connection')}")
         print(f"3. {_t('Google 连通性与代理诊断', 'Google connectivity and proxy diagnostics')}")
         print(f"4. {_t('立即刷新一次', 'Run one refresh now')}")
-        print(f"5. {_t('启动守护轮询（前台）', 'Start foreground polling')}")
-        print(f"6. {_t('远程模式配置向导（写入 .env）', 'Remote mode setup wizard (write .env)')}")
-        print(f"7. {_t('切换语言', 'Switch language')} ({_t('当前', 'current')}: {_language_label()})")
+        print(f"5. {_t('手动注册账号（可选邮箱提供商）', 'Manual registration (choose provider)')}")
+        print(f"6. {_t('启动守护轮询（前台）', 'Start foreground polling')}")
+        print(f"7. {_t('远程模式配置向导（写入 .env）', 'Remote mode setup wizard (write .env)')}")
+        print(f"8. {_t('切换语言', 'Switch language')} ({_t('当前', 'current')}: {_language_label()})")
         print(f"0. {_t('退出', 'Exit')}")
         choice = input(f"\n{_t('请选择', 'Choose')}: ").strip()
 
@@ -580,12 +743,15 @@ def interactive_menu() -> None:
             run_once_command()
             input(f"\n{_t('按回车继续...', 'Press Enter to continue...')}")
         elif choice == "5":
-            run_polling_command()
+            run_register_command(interactive=True)
             input(f"\n{_t('按回车继续...', 'Press Enter to continue...')}")
         elif choice == "6":
-            run_env_wizard()
+            run_polling_command()
             input(f"\n{_t('按回车继续...', 'Press Enter to continue...')}")
         elif choice == "7":
+            run_env_wizard()
+            input(f"\n{_t('按回车继续...', 'Press Enter to continue...')}")
+        elif choice == "8":
             switch_language_interactive()
             input(f"\n{_t('按回车继续...', 'Press Enter to continue...')}")
         elif choice == "0":
@@ -606,6 +772,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("menu", help=_t("启动交互菜单", "Start interactive menu"))
     sub.add_parser("once", help=_t("立即执行一次刷新", "Run one refresh immediately"))
+    register_parser = sub.add_parser("register", help=_t("手动注册账号", "Register accounts manually"))
+    register_parser.add_argument("--count", type=int, default=20, help=_t("注册数量（>=1）", "register count (>=1)"))
+    register_parser.add_argument(
+        "--provider",
+        choices=list(VALID_MAIL_PROVIDERS),
+        default="",
+        help=_t("邮箱提供商", "mail provider"),
+    )
+    register_parser.add_argument("--domain", default="", help=_t("注册域名（DuckMail）", "register domain (DuckMail)"))
     sub.add_parser("poll", help=_t("启动守护轮询（前台）", "Start foreground polling"))
     sub.add_parser("doctor", help=_t("打印配置 + 远程连接 + Google诊断", "Print config + remote check + Google diagnostics"))
     sub.add_parser("wizard", help=_t("远程模式配置向导（写入 .env）", "Remote mode setup wizard (write .env)"))
@@ -634,6 +809,13 @@ def main() -> None:
         interactive_menu()
     elif cmd == "once":
         run_once_command()
+    elif cmd == "register":
+        run_register_command(
+            count=args.count,
+            mail_provider=args.provider,
+            domain=args.domain,
+            interactive=False,
+        )
     elif cmd == "poll":
         run_polling_command()
     elif cmd == "doctor":

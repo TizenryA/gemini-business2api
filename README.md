@@ -102,7 +102,17 @@ docker run -d \
 python -m worker.cli once
 ```
 
-### 5) 健康检查 / Health check
+### 5) 手动注册账号（可选邮箱提供商）/ Manual account registration (select provider)
+
+```bash
+# 交互选择 provider / 数量 / 域名
+python -m worker.cli
+
+# 命令行直接注册 20 个（示例：duckmail）
+python -m worker.cli register --count 20 --provider duckmail
+```
+
+### 6) 健康检查 / Health check
 
 ```bash
 curl http://localhost:8080/health
@@ -115,6 +125,7 @@ curl http://localhost:8080/health
 |---|---|---|
 | `python -m worker.cli` | 打开交互菜单 | Open interactive menu |
 | `python -m worker.cli once` | 立即执行一轮刷新 | Run one refresh immediately |
+| `python -m worker.cli register --count 20 --provider duckmail` | 手动注册账号（可指定邮箱提供商） | Register accounts manually (provider selectable) |
 | `python -m worker.cli poll` | 前台守护轮询 | Start foreground polling loop |
 | `python -m worker.cli doctor` | 配置 + 远程连接 + Google 诊断 | Config + remote check + Google diagnostics |
 | `python -m worker.cli google` | 仅做 Google/代理诊断 | Google/proxy diagnostics only |
@@ -173,8 +184,9 @@ Browser mode recommendations:
 | `DELETE_EXPIRED_ACCOUNTS` | 自动删除凭证过期账号 | Auto-delete accounts with expired credentials |
 | `AUTO_REGISTER_ENABLED` | 自动补充注册账号 | Auto-register new accounts when needed |
 | `MIN_ACCOUNT_COUNT` | 最低活跃账号数量阈值 | Minimum active account threshold |
+| `TEMP_MAIL_PROVIDER` | 本地默认临时邮箱提供商（推荐 `duckmail`） | Local default temp mail provider (recommended `duckmail`) |
 | `REGISTER_DOMAIN` | 注册邮箱域名（DuckMail） | Registration email domain (DuckMail) |
-| `REGISTER_DEFAULT_COUNT` | 单批注册数量（1-20） | Accounts to register per batch (1-20) |
+| `REGISTER_DEFAULT_COUNT` | 单批注册数量（>=1，默认 20） | Accounts to register per batch (>=1, default 20) |
 
 ## 远程模式说明 / Remote Mode Notes
 
