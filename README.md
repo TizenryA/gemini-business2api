@@ -420,14 +420,6 @@ docker compose up -d
   </tr>
 </table>
 
-### QQ交流群
-
-扫码加入 QQ 交流群：
-
-<p>
-  <img src="docs/img/qq.png" alt="QQ交流群二维码" width="360" />
-</p>
-
 ### 更多文档
 
 - 支持的文件类型：[SUPPORTED_FILE_TYPES.md](docs/SUPPORTED_FILE_TYPES.md)
